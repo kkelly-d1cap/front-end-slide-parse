@@ -9,16 +9,15 @@ function App() {
   const [uploadData, setUploadData] = useState(null);
   const [selectedSlides, setSelectedSlides] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [generatedHTML, setGeneratedHTML] = useState('');
   const [error, setError] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const [categories, setCategories] = useState(['Summary', 'Market', 'Strategy', 'Team', 'Track Record']);
   const [editingCategories, setEditingCategories] = useState(false);
   const [tempCategories, setTempCategories] = useState([]);
 
-  const API_BASE = import.meta.env.VITE_API_BASE || 
-    (import.meta.env.MODE === 'production' 
-      ? 'https://fund-slide-parse-717f0957fd9f.herokuapp.com/api'
-      : 'http://localhost:5000/api');
+  const API_BASE = 'https://fund-slide-parse-717f0957fd9f.herokuapp.com/api';
 
   const handleEditCategories = () => {
     setTempCategories([...categories]);
@@ -123,7 +122,7 @@ function App() {
 
   const handleSlideToggle = (slideIndex) => {
     const newSelected = [...selectedSlides];
-    const existingIndex = newSelected.findIndex(s => s.id === uploadData.slides[slideIndex].id);
+    const existingIndex = newSelected.findIndex(s => s.page === uploadData.slides[slideIndex].page);
     
     if (existingIndex >= 0) {
       newSelected.splice(existingIndex, 1);
@@ -140,7 +139,7 @@ function App() {
 
   const handleCategoryAssign = (slideIndex, category) => {
     const newSelected = [...selectedSlides];
-    const slide = newSelected.find(s => s.id === uploadData.slides[slideIndex].id);
+    const slide = newSelected.find(s => s.page === uploadData.slides[slideIndex].page);
     if (slide) {
       slide.category = category;
       setSelectedSlides(newSelected);
@@ -148,7 +147,7 @@ function App() {
   };
 
   const handleUnselectSlide = (slideIndex) => {
-    const newSelected = selectedSlides.filter(s => s.id !== uploadData.slides[slideIndex].id);
+    const newSelected = selectedSlides.filter(s => s.page !== uploadData.slides[slideIndex].page);
     setSelectedSlides(newSelected);
   };
 
@@ -171,6 +170,53 @@ function App() {
     setUploadData(null);
     setSelectedSlides([]);
     setError('');
+  };
+
+  const generateHTML = async () => {
+    const selected = selectedSlides.filter(slide => slide.category);
+    
+    if (selected.length === 0) {
+      setError('Please select at least one slide and assign a category');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      console.log('Uploading slides to S3 and generating HTML...');
+      
+      // Call backend to upload slides to S3 and generate HTML
+      const response = await fetch(`${API_BASE}/process`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: uploadData.session_id,
+          selected_slides: selected
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'HTML generation failed');
+      }
+
+      const data = await response.json();
+      console.log('HTML generated successfully:', data);
+
+      // Combine all HTML sections
+      const allHTML = Object.values(data.html_sections).join('\n\n');
+      setGeneratedHTML(allHTML);
+      setCurrentStep(3);
+      
+    } catch (error) {
+      console.error('HTML generation error:', error);
+      setError(`HTML generation failed: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const steps = [
@@ -457,8 +503,8 @@ function App() {
             {/* Slides Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {uploadData.slides.map((slide, index) => {
-                const isSelected = selectedSlides.some(s => s.id === slide.id);
-                const selectedSlide = selectedSlides.find(s => s.id === slide.id);
+                const isSelected = selectedSlides.some(s => s.page === slide.page);
+                const selectedSlide = selectedSlides.find(s => s.page === slide.page);
                 
                 return (
                   <div
@@ -498,8 +544,8 @@ function App() {
                       onClick={() => handleSlideToggle(index)}
                     >
                       <img
-                        src={slide.thumbnail}
-                        alt={`Slide ${slide.id}`}
+                        src={slide.thumbnail_b64}
+                        alt={`Slide ${slide.page}`}
                         className="w-full h-full object-contain"
                       />
                     </div>
@@ -508,7 +554,7 @@ function App() {
                     <div className="p-4">
                       <div className="flex justify-between items-center mb-3">
                         <span className="text-sm font-medium text-gray-900">
-                          Slide {slide.id}
+                          Slide {slide.page}
                         </span>
                         {selectedSlide?.category && (
                           <span className="px-2 py-1 text-xs font-medium rounded bg-blue-100 text-blue-800 border border-blue-200">
@@ -560,12 +606,19 @@ function App() {
             {/* Generate Button */}
             <div className="flex justify-center">
               <Button
-                onClick={() => setCurrentStep(3)}
+                onClick={generateHTML}
                 size="lg"
                 className="px-8 py-3"
-                disabled={selectedSlides.length === 0 || !selectedSlides.some(s => s.category)}
+                disabled={selectedSlides.length === 0 || !selectedSlides.some(s => s.category) || isLoading}
               >
-                Generate HTML Code ({selectedSlides.filter(s => s.category).length} slides ready)
+                {isLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Uploading to S3 & Generating HTML...
+                  </>
+                ) : (
+                  `Generate HTML Code (${selectedSlides.filter(s => s.category).length} slides ready)`
+                )}
               </Button>
             </div>
 
@@ -596,184 +649,58 @@ function App() {
           </div>
         )}
 
-        {/* Step 3: HTML Generation */}
-        {currentStep === 3 && (
+        {/* Step 3: Generated HTML */}
+        {currentStep === 3 && generatedHTML && (
           <div className="space-y-6">
             <div className="text-center">
               <h2 className="text-3xl font-bold text-gray-900 mb-4">
                 Generated HTML Code
               </h2>
               <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-                Copy and paste these HTML snippets into your website. Each category is organized separately.
+                Your slides have been uploaded to S3 and HTML code generated. Copy and paste into your presentation.
               </p>
             </div>
 
-            {/* Category-based HTML Generation */}
-            {categories.map((category) => {
-              const categorySlides = selectedSlides.filter(s => s.category === category);
-              if (categorySlides.length === 0) return null;
-
-              const generateCategoryHTML = () => {
-                const slidesHTML = categorySlides.map((slide, index) => {
-                  const fileName = `${fundInfo.fundId}_${fundInfo.fundName.replace(/\s+/g, '_')}_slide${slide.page}.png`;
-                  const altText = `${category}_slide${index + 1}`;
-                  return `    <div class="slide-item">
-      <img src="https://your-bucket.s3.amazonaws.com/${fileName}" alt="${altText}" />
-      <p>${slide.title || `Slide ${slide.page}`}</p>
-    </div>`;
-                }).join('\n');
-
-                return `<!-- ${category} Section -->
-<div class="${category.toLowerCase().replace(/\s+/g, '-')}-section">
-  <h2>${category}</h2>
-  <div class="slides-container">
-${slidesHTML}
-  </div>
-</div>`;
-              };
-
-              return (
-                <div key={category} className="bg-white rounded-lg shadow-md overflow-hidden">
-                  <div className="bg-blue-500 text-white px-6 py-4">
-                    <h3 className="text-lg font-semibold">
-                      📂 {category} Section ({categorySlides.length} slide{categorySlides.length !== 1 ? 's' : ''})
-                    </h3>
-                  </div>
-                  <div className="p-6">
-                    <div className="bg-gray-900 rounded-lg overflow-hidden">
-                      <div className="bg-gray-800 px-4 py-2 text-gray-300 text-sm font-medium">
-                        HTML Code - Copy and Paste Ready
-                      </div>
-                      <pre className="p-4 text-green-400 text-sm overflow-x-auto">
-                        <code>{generateCategoryHTML()}</code>
-                      </pre>
-                    </div>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(generateCategoryHTML());
-                        alert(`${category} HTML code copied to clipboard!`);
-                      }}
-                      className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-                    >
-                      Copy {category} Code
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* CSS Styles */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
-              <div className="bg-gray-500 text-white px-6 py-4">
-                <h3 className="text-lg font-semibold">🎨 CSS Styles (Include Once)</h3>
+              <div className="bg-green-500 text-white px-6 py-4">
+                <h3 className="text-lg font-semibold">
+                  ✅ HTML Code Ready ({selectedSlides.filter(s => s.category).length} slides uploaded to S3)
+                </h3>
               </div>
               <div className="p-6">
                 <div className="bg-gray-900 rounded-lg overflow-hidden">
-                  <div className="bg-gray-800 px-4 py-2 text-gray-300 text-sm font-medium">
-                    CSS Styles - Add to your website's stylesheet
+                  <div className="bg-gray-800 px-4 py-2 text-gray-300 text-sm font-medium flex justify-between items-center">
+                    <span>HTML Code - Copy and Paste Ready</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(generatedHTML);
+                        alert('HTML code copied to clipboard!');
+                      }}
+                      className="px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 transition-colors"
+                    >
+                      📋 Copy All
+                    </button>
                   </div>
-                  <pre className="p-4 text-blue-400 text-sm overflow-x-auto">
-                    <code>{`.summary-section, .market-section, .strategy-section, .team-section, .track-record-section {
-  margin: 20px 0;
-  padding: 20px;
-  background: #f8fafc;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-}
-
-.slides-container {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 20px;
-  margin-top: 15px;
-}
-
-.slide-item {
-  background: white;
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  transition: transform 0.3s;
-}
-
-.slide-item:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-}
-
-.slide-item img {
-  width: 100%;
-  height: 200px;
-  object-fit: cover;
-}
-
-.slide-item p {
-  padding: 15px;
-  font-weight: 500;
-  color: #374151;
-  margin: 0;
-}`}</code>
+                  <pre className="p-4 text-green-400 text-sm overflow-x-auto max-h-96">
+                    <code>{generatedHTML}</code>
                   </pre>
                 </div>
-                <button
-                  onClick={() => {
-                    const cssCode = `.summary-section, .market-section, .strategy-section, .team-section, .track-record-section {
-  margin: 20px 0;
-  padding: 20px;
-  background: #f8fafc;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-}
-
-.slides-container {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 20px;
-  margin-top: 15px;
-}
-
-.slide-item {
-  background: white;
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  transition: transform 0.3s;
-}
-
-.slide-item:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-}
-
-.slide-item img {
-  width: 100%;
-  height: 200px;
-  object-fit: cover;
-}
-
-.slide-item p {
-  padding: 15px;
-  font-weight: 500;
-  color: #374151;
-  margin: 0;
-}`;
-                    navigator.clipboard.writeText(cssCode);
-                    alert('CSS styles copied to clipboard!');
-                  }}
-                  className="mt-4 px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
-                >
-                  Copy CSS Styles
-                </button>
               </div>
             </div>
 
             {/* Back Button */}
-            <div className="flex justify-center">
+            <div className="flex justify-center space-x-4">
               <button
                 onClick={() => setCurrentStep(2)}
                 className="px-6 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition-colors"
               >
                 ← Back to Slide Selection
+              </button>
+              <button
+                onClick={resetApp}
+                className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+              >
+                Process Another Presentation
               </button>
             </div>
           </div>
