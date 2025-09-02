@@ -122,7 +122,7 @@ function App() {
 
   const handleSlideToggle = (slideIndex) => {
     const newSelected = [...selectedSlides];
-    const existingIndex = newSelected.findIndex(s => s.page === uploadData.slides[slideIndex].page);
+    const existingIndex = newSelected.findIndex(s => s.id === uploadData.slides[slideIndex].id);
     
     if (existingIndex >= 0) {
       newSelected.splice(existingIndex, 1);
@@ -139,7 +139,7 @@ function App() {
 
   const handleCategoryAssign = (slideIndex, category) => {
     const newSelected = [...selectedSlides];
-    const slide = newSelected.find(s => s.page === uploadData.slides[slideIndex].page);
+    const slide = newSelected.find(s => s.id === uploadData.slides[slideIndex].id);
     if (slide) {
       slide.category = category;
       setSelectedSlides(newSelected);
@@ -147,7 +147,7 @@ function App() {
   };
 
   const handleUnselectSlide = (slideIndex) => {
-    const newSelected = selectedSlides.filter(s => s.page !== uploadData.slides[slideIndex].page);
+    const newSelected = selectedSlides.filter(s => s.id !== uploadData.slides[slideIndex].id);
     setSelectedSlides(newSelected);
   };
 
@@ -503,8 +503,8 @@ function App() {
             {/* Slides Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {uploadData.slides.map((slide, index) => {
-                const isSelected = selectedSlides.some(s => s.page === slide.page);
-                const selectedSlide = selectedSlides.find(s => s.page === slide.page);
+                const isSelected = selectedSlides.some(s => s.id === slide.id);
+                const selectedSlide = selectedSlides.find(s => s.id === slide.id);
                 
                 return (
                   <div
@@ -544,8 +544,8 @@ function App() {
                       onClick={() => handleSlideToggle(index)}
                     >
                       <img
-                        src={slide.thumbnail_b64}
-                        alt={`Slide ${slide.page}`}
+                        src={slide.thumbnail}
+                        alt={`Slide ${slide.id}`}
                         className="w-full h-full object-contain"
                       />
                     </div>
@@ -554,7 +554,7 @@ function App() {
                     <div className="p-4">
                       <div className="flex justify-between items-center mb-3">
                         <span className="text-sm font-medium text-gray-900">
-                          Slide {slide.page}
+                          Slide {slide.id}
                         </span>
                         {selectedSlide?.category && (
                           <span className="px-2 py-1 text-xs font-medium rounded bg-blue-100 text-blue-800 border border-blue-200">
